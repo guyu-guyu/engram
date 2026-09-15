@@ -21,7 +21,7 @@
   var Button = SDK.components.Button;
   var Input = SDK.components.Input;
 
-  var API = "/api/plugins/sqlite-note-store";
+  var API = "/api/plugins/engram";
 
   // ── Profile 联动（v0.2.0）──────────────────────────────────────────────
   // dashboard 的 profile 切换器把选中 profile 写进 URL（?profile=<name>），
@@ -895,6 +895,6 @@
   // ── Register ──────────────────────────────────────────────────────────
 
   if (window.__HERMES_PLUGINS__ && typeof window.__HERMES_PLUGINS__.register === "function") {
-    window.__HERMES_PLUGINS__.register("sqlite-note-store", ProfileBoundNotesPage);
+    window.__HERMES_PLUGINS__.register("engram", ProfileBoundNotesPage);
   }
 })();

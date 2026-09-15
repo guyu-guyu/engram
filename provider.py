@@ -1,4 +1,4 @@
-"""SQLiteNoteStoreProvider — the MemoryProvider facade.
+"""EngramProvider — the MemoryProvider facade (formerly sqlite-note-store).
 
 This module wires storage / markdown_io / export into the exact set of
 tools the reference `markdown-note-store` plugin exposes, so the LLM's
@@ -83,7 +83,7 @@ except ImportError:  # pragma: no cover — allows tests without the agent tree.
 # ---------------------------------------------------------------------------
 
 
-class SQLiteNoteStoreProvider(MemoryProvider):
+class EngramProvider(MemoryProvider):
     """Hermes memory provider backed by a single SQLite database."""
 
     # -- lifecycle ----------------------------------------------------------
@@ -104,7 +104,7 @@ class SQLiteNoteStoreProvider(MemoryProvider):
 
     @property
     def name(self) -> str:  # required by MemoryProvider
-        return "sqlite-note-store"
+        return "engram"
 
     def is_available(self) -> bool:  # required by MemoryProvider
         # No external deps — always available.
@@ -169,7 +169,7 @@ class SQLiteNoteStoreProvider(MemoryProvider):
         with self._lock:
             index_text = export_mod._build_index_markdown(self._conn)
         return (
-            "# Note Repository (sqlite-note-store)\n"
+            "# Memory Repository (engram)\n"
             "Persistent memory keyed on `title` (auto-slugged into a group). "
             "Reading path: scan the index below first to spot the right group, "
             "then `note_read(path)` for a slim headers overview, then "
@@ -1048,7 +1048,7 @@ def _parse_tags(raw: Any) -> list[str]:
 def register(ctx: Any) -> None:  # pragma: no cover — integration surface.
     """Registered by Hermes when the plugin is discovered."""
     try:
-        ctx.register_memory_provider(SQLiteNoteStoreProvider())
+        ctx.register_memory_provider(EngramProvider())
     except AttributeError:
         # _ProviderCollector fake context — nothing else to do.
         pass

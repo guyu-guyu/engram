@@ -1,5 +1,5 @@
-name: sqlite-note-store
+name: engram
 version: 0.1.0
-description: "SQLite-backed note repository — tool-compatible with markdown-note-store, entry-level writes with organic Markdown-shape export."
+description: "Engram — SQLite-backed structured memory store for AI agents. Entry-level writes, group containers, FTS5 search, organic Markdown export."
 pip_dependencies: []
 requires_env: []

@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from provider import SQLiteNoteStoreProvider
+from provider import EngramProvider
 
 
 def _new_provider(tmp_path):
-    p = SQLiteNoteStoreProvider()
+    p = EngramProvider()
     p.initialize(session_id="test", note_root=tmp_path / "notes")
     return p
 

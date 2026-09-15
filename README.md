@@ -1,4 +1,4 @@
-# sqlite-note-store
+# engram
 
 Hermes Agent 的 SQLite 后端记忆库插件。权威存储放在单个 SQLite 数据库里，同时保留把整库无损导出成 Markdown 目录树的能力。
 
@@ -22,11 +22,11 @@ Hermes Agent 的 SQLite 后端记忆库插件。权威存储放在单个 SQLite 
 
 ```bash
 # 1. 整体软链仓库根（$HERMES_HOME 默认 ~/.hermes）——一条命令，仓库即插件
-ln -sfn /path/to/sqlite-note-store-plugin "${HERMES_HOME:-$HOME/.hermes}/plugins/sqlite-note-store"
+ln -sfn /path/to/engram-plugin "${HERMES_HOME:-$HOME/.hermes}/plugins/engram"
 
 # 2. 在 config.yaml 中指定 memory provider（这是激活的唯一开关）
 # memory:
-#   provider: sqlite-note-store
+#   provider: engram
 
 # 3. 重启会话
 ```
@@ -35,14 +35,14 @@ ln -sfn /path/to/sqlite-note-store-plugin "${HERMES_HOME:-$HOME/.hermes}/plugins
 
 > **激活机制**：memory provider 的**激活**只由 `memory.provider` 配置键决定，与 `plugins.enabled` 无关。但**如果要使用 Web 看板（dashboard）**，插件名（manifest 的 `name`）**必须出现在 `plugins.enabled` 里**——dashboard 前端用它对用户插件做门控，不在列表里的插件 tab 会被静默过滤（见下方故障排查）。
 >
-> **验证**：在 hermes-agent 仓库根目录运行 `python -c "from plugins.memory import discover_memory_providers; print([p[0] for p in discover_memory_providers()])"`，应包含 `sqlite-note-store`。若加载失败，启动日志会包含 `Failed to load memory provider` 或 `Memory provider ... initialize failed`（加载失败只是降级跳过，不会阻塞 Hermes 启动，所以**没报错 ≠ 已加载**，务必查配置与日志）。
+> **验证**：在 hermes-agent 仓库根目录运行 `python -c "from plugins.memory import discover_memory_providers; print([p[0] for p in discover_memory_providers()])"`，应包含 `engram`。若加载失败，启动日志会包含 `Failed to load memory provider` 或 `Memory provider ... initialize failed`（加载失败只是降级跳过，不会阻塞 Hermes 启动，所以**没报错 ≠ 已加载**，务必查配置与日志）。
 
 ### 方式二：git clone 安装（分发/更新）
 
 ```bash
 # 仓库根即插件：clone 到插件目录即可用，之后 git pull 保持更新
-git clone https://github.com/guyu-guyu/sqlite-note-store.git "${HERMES_HOME:-$HOME/.hermes}/plugins/sqlite-note-store"
-cd "${HERMES_HOME:-$HOME/.hermes}/plugins/sqlite-note-store"
+git clone https://github.com/guyu-guyu/engram.git "${HERMES_HOME:-$HOME/.hermes}/plugins/engram"
+cd "${HERMES_HOME:-$HOME/.hermes}/plugins/engram"
 git pull   # 以后更新
 ```
 
@@ -58,7 +58,7 @@ git pull   # 以后更新
 
 ```text
 # ✅ 正确：插件目录 = 仓库根（一条软链或 git clone）
-$HERMES_HOME/plugins/sqlite-note-store → 仓库根
+$HERMES_HOME/plugins/engram → 仓库根
 ├── plugin.yaml      # 在根
 ├── __init__.py      # register(ctx) 在根
 ├── provider.py      # SQLiteNoteStoreProvider + register
@@ -70,7 +70,7 @@ $HERMES_HOME/plugins/sqlite-note-store → 仓库根
 #    发现机制要求的是一个完整目录（git clone 即用）
 ```
 
-**② 激活开关**：`config.yaml` 必须设置 `memory.provider: sqlite-note-store`（名字与 `provider.name`、目录名完全一致）。这是唯一激活开关。
+**② 激活开关**：`config.yaml` 必须设置 `memory.provider: engram`（名字与 `provider.name`、目录名完全一致）。这是唯一激活开关。
 
 **③ 路径**：插件必须装在 `${HERMES_HOME:-$HOME/.hermes}/plugins/` 下，确认 `echo $HERMES_HOME` 的实际值。
 
@@ -94,7 +94,7 @@ Hermes 扫描 `$HERMES_HOME/plugins/<name>/dashboard/manifest.json` 发现看板
 
 ```jsonc
 // dashboard/manifest.json
-{ "name": "sqlite-note-store", ... }  // 必须与 plugins.enabled 一致
+{ "name": "engram", ... }  // 必须与 plugins.enabled 一致
 ```
 
 前端门控（`_is_active`）拿 manifest 的 name 与 `plugins.enabled` 比对——不一致时 tab 被静默过滤。
@@ -103,8 +103,8 @@ Hermes 扫描 `$HERMES_HOME/plugins/<name>/dashboard/manifest.json` 发现看板
 
 ```js
 // dashboard/dist/index.js
-var API = "/api/plugins/sqlite-note-store";            // 不是 /api/plugins/notes
-window.__HERMES_PLUGINS__.register("sqlite-note-store", NotesPage);  // 不是 "notes"
+var API = "/api/plugins/engram";            // 不是 /api/plugins/notes
+window.__HERMES_PLUGINS__.register("engram", NotesPage);  // 不是 "notes"
 ```
 
 宿主按 manifest name 期待 `register(<name>, Component)`；注册名不匹配时面板报“插件脚本未调用 register()”。API 路由也挂在 `/api/plugins/<manifest name>/` 下。
@@ -126,10 +126,10 @@ PASS=$(grep PASSWORD ~/.hermes/dashboard-credentials.txt | cut -d= -f2)
 curl -c /tmp/cookie.txt -X POST http://localhost:9119/auth/password-login \
   -H "Content-Type: application/json" \
   -d "{\"provider\":\"basic\",\"username\":\"admin\",\"password\":\"$PASS\"}"
-curl -b /tmp/cookie.txt http://localhost:9119/api/dashboard/plugins          # 应含 sqlite-note-store
-curl -b /tmp/cookie.txt http://localhost:9119/api/plugins/sqlite-note-store/stats  # 应返回 JSON
+curl -b /tmp/cookie.txt http://localhost:9119/api/dashboard/plugins          # 应含 engram
+curl -b /tmp/cookie.txt http://localhost:9119/api/plugins/engram/stats  # 应返回 JSON
 curl -b /tmp/cookie.txt -o /dev/null -w "%{http_code}\n" \
-  http://localhost:9119/dashboard-plugins/sqlite-note-store/dist/index.js   # 应 200
+  http://localhost:9119/dashboard-plugins/engram/dist/index.js   # 应 200
 ```
 
 ### 3. 改了代码不生效？
@@ -175,7 +175,7 @@ export.import_from_directory(conn, Path("/path/to/some-markdown-notes"), replace
 ### 每轮注入的内容
 
 ```markdown
-# Note Repository (sqlite-note-store)
+# Note Repository (engram)
 Persistent memory keyed on `title` (auto-slugged to a file).
 Reading path: scan the index below first to spot the right group,
 then `note_read(path)` for a slim headers overview, then
@@ -347,7 +347,7 @@ tests/
 54 项全绿。跑法：
 
 ```bash
-cd sqlite-note-store-plugin
+cd engram-plugin
 python -m pytest -v
 ```
 
