@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
@@ -128,11 +127,6 @@ class EngramProvider(MemoryProvider):
         self._note_root = Path(note_root)
         self._conn = schema.connect(self._note_root)
 
-        # Install bundled maintenance skill (idempotent).
-        try:
-            self._install_bundled_skill(kwargs.get("hermes_home"))
-        except Exception as e:  # pragma: no cover — non-fatal.
-            logger.debug("Skill install skipped: %s", e)
 
     def shutdown(self) -> None:  # required by MemoryProvider
         with self._lock:
@@ -142,20 +136,6 @@ class EngramProvider(MemoryProvider):
                 finally:
                     self._conn.close()
                     self._conn = None
-
-    def _install_bundled_skill(self, hermes_home: str | None) -> None:
-        src = Path(__file__).parent / "skills" / "note-maintenance" / "SKILL.md"
-        if not src.exists():
-            return
-        home = Path(hermes_home) if hermes_home else Path.home() / ".hermes"
-        dst_dir = home / "skills" / "note-taking" / "note-maintenance-sqlite"
-        dst = dst_dir / "SKILL.md"
-        if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
-            return
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-
-    # -- context injection --------------------------------------------------
 
     def system_prompt_block(self) -> str:
         """Rendered every turn — INDEX summary + short usage guide.
@@ -1049,6 +1029,16 @@ def register(ctx: Any) -> None:  # pragma: no cover — integration surface.
     """Registered by Hermes when the plugin is discovered."""
     try:
         ctx.register_memory_provider(EngramProvider())
+        # Register the bundled maintenance skill as ``engram:engram-mem-maintenance``.
+        # Registered (not copied into ~/.hermes/skills/): zero-copy — the repo file IS
+        # the source; lifetime follows the active memory provider (auto-pruned on switch).
+        skill_md = Path(__file__).parent / "skills" / "note-maintenance" / "SKILL.md"
+        if skill_md.exists():
+            ctx.register_skill(
+                name="engram-mem-maintenance",
+                path=skill_md,
+                description="维护 engram 记忆库并同步常驻记忆 — 同步常驻记忆→库、整理脏组、消化评论、以库为准纠正常驻记忆,全程 note_* 工具。",
+            )
     except AttributeError:
         # _ProviderCollector fake context — nothing else to do.
         pass

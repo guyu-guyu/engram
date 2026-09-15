@@ -46,7 +46,7 @@ cd "${HERMES_HOME:-$HOME/.hermes}/plugins/engram"
 git pull   # 以后更新
 ```
 
-启用后，第一次会话开始时 SQLite 数据库会自动创建，维护 skill 自动安装。
+启用后，第一次会话开始时 SQLite 数据库会自动创建；维护 skill 由 provider 注册为 `engram:engram-mem-maintenance`（不复制文件）。
 
 ## 故障排查
 
@@ -137,7 +137,7 @@ curl -b /tmp/cookie.txt -o /dev/null -w "%{http_code}\n" \
 按 README 方式一（符号链接）安装时，仓库改动**实时同步**到插件目录：
 - 后端（provider 等 .py）→ 重启 Hermes 会话生效
 - dashboard manifest / dist → 重启 dashboard 进程生效（或先 rescan 试静态资源）
-- 维护 skill → 下次会话 initialize() 时按 mtime 自动同步
+- 维护 skill → 无副本；provider 注册（engram:engram-mem-maintenance），实时生效
 
 ## 数据在哪里
 
@@ -145,7 +145,6 @@ curl -b /tmp/cookie.txt -o /dev/null -w "%{http_code}\n" \
 |---|---|
 | `~/.hermes/notes/notes.sqlite3` | SQLite 权威存储（WAL 模式） |
 | `~/.hermes/notes/notes.sqlite3-wal` / `.sqlite3-shm` | SQLite WAL 副产物 |
-| `~/.hermes/skills/note-taking/note-maintenance-sqlite/SKILL.md` | 维护技能（LLM 用） |
 
 **导出成 Markdown 目录：**
 
@@ -330,7 +329,7 @@ python __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
 ├── dashboard/
 │   └── dist/index.js    — 前端 bundle（统计 + INDEX 树 + 编辑器 + 搜索 + 冷存储 + 新建条目弹窗）
 └── skills/
-    └── note-maintenance/SKILL.md  — 维护技能
+    └── note-maintenance/SKILL.md  — 维护技能（注册为 engram:engram-mem-maintenance）
 ```
 
 **测试：**

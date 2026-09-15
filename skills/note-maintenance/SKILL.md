@@ -1,5 +1,5 @@
 ---
-name: note-maintenance
+name: engram-mem-maintenance
 description: 维护 SQLite 记忆库并同步常驻记忆 — 第一步把常驻记忆(MEMORY.md/USER.md)缺失内容写入记忆库(标脏),再读取脏组、消化评论、合并去重、拆分超大组、迁移错分类、维护层级(≤3层),最后以整理后的记忆库为准纠正常驻记忆,全程通过 note_rewrite / note_move / note_rename_category / note_rename_group 与 memory 工具操作。
 platforms: [linux, macos, windows]
 ---
