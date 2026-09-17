@@ -58,7 +58,11 @@ logger = logging.getLogger(__name__)
 # implementations behave interchangeably when swapping.
 DEFAULT_COLD_EVICT_DAYS = 90
 DEFAULT_MAX_COLD_BATCHES = 50
-DEFAULT_MAX_ACTIVE_GROUP_SIZE_BYTES = 50 * 1024  # 50 KB soft cap
+# Group-size cap: counted in ENTRIES, not bytes. Entry headers are NOT in the
+# injected index (only group titles), so a group must stay small enough that
+# its title can summarise every entry — too many entries means entries the
+# index cannot "see", i.e. knowledge that can never be discovered by scan.
+DEFAULT_MAX_GROUP_ENTRIES = 20
 DEFAULT_MAX_GROUPS_PER_CATEGORY = 50
 DEFAULT_MAX_CATEGORY_DEPTH = 3  # detection threshold only — never enforced
 DEFAULT_PREFETCH_CHAR_LIMIT = 2000
@@ -94,7 +98,7 @@ class EngramProvider(MemoryProvider):
         # Config knobs — populated in `initialize()` from Hermes config.
         self._cold_evict_days = DEFAULT_COLD_EVICT_DAYS
         self._max_cold_batches = DEFAULT_MAX_COLD_BATCHES
-        self._max_active_group_size = DEFAULT_MAX_ACTIVE_GROUP_SIZE_BYTES
+        self._max_group_entries = DEFAULT_MAX_GROUP_ENTRIES
         self._max_groups_per_category = DEFAULT_MAX_GROUPS_PER_CATEGORY
         self._max_category_depth = DEFAULT_MAX_CATEGORY_DEPTH
         self._prefetch_char_limit = DEFAULT_PREFETCH_CHAR_LIMIT
@@ -403,7 +407,8 @@ class EngramProvider(MemoryProvider):
                     "Run mechanical maintenance: cold-eviction of stale "
                     "entries, cold-batch pruning, oversized-group and "
                     "overpopulated-category detection (reported, never "
-                    "auto-fixed). Returns `dirty_groups` — the LLM must "
+                    "auto-fixed; oversized = groups over the entry-count "
+                    "cap, must be split). Returns `dirty_groups` — the LLM must "
                     "resolve each by reading the group and calling "
                     "note_rewrite — plus `cold_moved`, `cold_batches_pruned`, "
                     "`oversized_groups`, `overpopulated_categories`, "
@@ -921,29 +926,23 @@ class EngramProvider(MemoryProvider):
     # ---- maintenance detectors -------------------------------------------
 
     def _detect_oversized_groups(self) -> list[dict[str, Any]]:
-        """Groups whose rendered markdown would exceed the size cap.
+        """Groups holding more entries than the entry-count cap.
 
-        We compute the size against the *rendered* form because that's
-        what the LLM will see when it reads the group — bytes on disk
-        are the honest signal for whether a split is warranted.
+        The cap is a COUNT of entries, not bytes. Entry headers are not
+        part of the injected index — only the group title is — so a group
+        whose title cannot plausibly summarise all of its entries makes
+        those entries undiscoverable via index scanning. An over-cap
+        group must be split by the maintenance LLM.
         """
         oversized: list[dict[str, Any]] = []
         for g in storage.list_groups(self._conn):
             entries = storage.list_entries(self._conn, g.id)
-            text = markdown_io.render_file(
-                {"title": g.title, "tags": g.tags, "dirty": g.dirty,
-                 "created": g.created, "updated": g.updated},
-                [markdown_io.ParsedEntry(
-                    header=e.header, content=e.content,
-                    last_used=e.last_used, comments=e.comments,
-                ) for e in entries],
-            )
-            size = len(text.encode("utf-8"))
-            if size > self._max_active_group_size:
+            n = len(entries)
+            if n > self._max_group_entries:
                 oversized.append({
                     "path": g.path,
-                    "size_bytes": size,
-                    "size_kb": round(size / 1024, 1),
+                    "entry_count": n,
+                    "max_entries": self._max_group_entries,
                 })
         return oversized
 

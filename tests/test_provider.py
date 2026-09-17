@@ -425,6 +425,26 @@ def test_maintain_detects_overpopulated_intermediate_node(tmp_path):
     p.shutdown()
 
 
+def test_oversized_groups_counted_by_entries_not_bytes(tmp_path):
+    """超大组按条目数判定(>20),大内容但少条目的组不算超大。"""
+    p = _new_provider(tmp_path)
+    # 少条目 + 超大内容: 不应报告
+    _call(p, "note_write", title="Big", content="x" * 60_000, path="game/Big")
+    res = _call(p, "note_maintain")
+    assert res["oversized_groups"] == []
+    # 多条目 + 小内容: 应报告并强制标脏
+    for i in range(21):
+        _call(p, "note_write", title=f"E{i}", content="y", path="game/Many")
+    res = _call(p, "note_maintain")
+    over = [o for o in res["oversized_groups"] if o["path"] == "game/Many"]
+    assert len(over) == 1
+    assert over[0]["entry_count"] == 21
+    assert over[0]["max_entries"] == 20
+    dirty = _call(p, "note_maintain")["dirty_groups"]
+    assert "game/Many" in dirty
+    p.shutdown()
+
+
 def test_note_move_normalizes_trailing_slash(tmp_path):
     p = _new_provider(tmp_path)
     r = _call(p, "note_write", title="Flow", content="body", path="game/br/Flow")

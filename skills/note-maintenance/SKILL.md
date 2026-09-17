@@ -45,7 +45,11 @@ platforms: [linux, macos, windows]
 
 ### 脏标记 = "这个组有变化，LLM 该来看看"
 
-`dirty: true` 可能来自：新增条目（可能与旧条目重复）、加了评论、内容被修改、超出存储上限（组渲染 >50KB / 节点 >50 子项，`note_maintain` 强制标脏）。**所有脏组都要 LLM 亲自处理。**
+`dirty: true` 可能来自：新增条目（可能与旧条目重复）、加了评论、内容被修改、超出存储上限（单组条目数 >20 / 节点 >50 子项，`note_maintain` 强制标脏）。**所有脏组都要 LLM 亲自处理。**
+
+### 组容量上限按条目数（20 条），不按字节 —— 为什么
+
+条目标题**不注入上下文**，INDEX 里只有组名。因此组名是条目唯一的检索入口：组内条目一多，组名就无法概括每一条，超出命名概括能力的条目等于「被藏起来」——扫 INDEX 发现不了它们。所以上限必须是条目数：**组名必须能完善概括组内所有条目**，做不到就拆。字节数不再作为拆分信号（大条目≠难检索）。
 
 ### Python 从不物理删除活跃组
 
@@ -86,7 +90,7 @@ platforms: [linux, macos, windows]
 
 调用 `note_maintain(force=False)`，观察返回：
 - `dirty_groups`：脏组 path 列表——处理目标
-- `oversized_groups`：单组渲染 >50KB——需要拆分
+- `oversized_groups`：单组条目数 >20（`[{path, entry_count, max_entries}]`）——需要拆分
 - `overpopulated_categories`：超限节点 `[{category, child_count, subcategories, direct_groups}]`——需要合并/迁移
 - `deep_categories`：深度 >3 的分类路径——需要上提整理
 - `hierarchy_summary`：每层节点数——看层级形状
@@ -116,13 +120,13 @@ platforms: [linux, macos, windows]
 
 **3.6 组结构健康度**（响应式，只评估当前脏组，不全库扫描）：
 
-- **A. 单组 >50KB（在 `oversized_groups`）→ 拆分**：按主题分成 2-3 组，主组 `note_rewrite` 写回，其他组 `note_write` 建成新组
+- **A. 单组 >20 条目（在 `oversized_groups`）→ 拆分**：按主题分成 2-3 组，主组 `note_rewrite` 写回，其他组 `note_write` 建成新组。**拆分后每个新组名必须能概括该组全部条目**（见 3.7）
 - **B. 节点超 50 子项（在 `overpopulated_categories`）→ 合并/迁移/归档**：`direct_groups` 按创建时间升序，最旧优先处理；两组合并 = 条目并入 A + `note_rewrite(B, entries=[])`；错分类 = 逐个 `note_write(path=目标路径)` 到目标分类 + 删原组；整组过时 = 让它自然过期到冷存储
 - **C. 脏组过小（1-2 条目）→ 顺手并入相邻主题组**；**D. 分类过稀 → 顺手上提合并**——C/D 只在处理脏组时顺手观察到才做，`note_maintain` 不会主动报告
 
-**3.7 名称校准**（响应式，处理脏组时顺手检查）——**组名和分类名是 INDEX 的检索锚**：名字不精准 = 后续检索路由失准。让名字尽可能精准描述其包含的内容：
+**3.7 名称校准**（响应式，处理脏组时顺手检查）——**组名和分类名是 INDEX 的检索锚，而条目标题不注入上下文：组名是条目唯一的检索入口**。让名字尽可能完善地概括组内条目的内容：
 
-- **组名**：读脏组时留意 `title` 能否概括条目内容。过泛（“笔记”、“杂项”、“参考”）、过时、或与实际内容不符 → `note_rename_group(path, new_title)` 改名（slug/path 自动重新派生，分类不变；新 path 冲突则先合并再改）
+- **组名**：读脏组时留意 `title` 能否概括**每一条**条目。过泛（“笔记”、“杂项”、“参考”）、过时、只覆盖部分条目、或与实际内容不符 → `note_rename_group(path, new_title)` 改名（slug/path 自动重新派生，分类不变；新 path 冲突则先合并再改）。**若一个名字已无法同时概括所有条目，这本身就是拆分信号**（回到 3.6-A）
 - **分类名**：分类下的组被搬走/合并后，分类名不再能概括其下所有组主题 → `note_rename_category(old, new)` 改名（精确匹配，只改直接组；子分类不受影响），或 `note_move` 把组挪到语义更准的分类
 - **为内容命名，不为改而改**：仅在名称明显失真、会误导检索时动手；名称已准确就不动
 
