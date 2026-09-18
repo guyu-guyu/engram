@@ -301,7 +301,9 @@ class EngramProvider(MemoryProvider):
                     "Read a single note entry (default) or a slim group "
                     "overview. Pass `entry_header` to fetch that specific "
                     "entry's full content — this is the token-efficient "
-                    "default for day-to-day recall. Omit `entry_header` to "
+                    "default for day-to-day recall. Reading an entry's full "
+                    "content auto-refreshes its last_used (no manual "
+                    "note_use needed). Omit `entry_header` to "
                     "get just the group's title + headers list, then decide "
                     "which entry to load. For maintenance (reading every "
                     "entry to merge/dedupe), use `note_read_group` instead."
@@ -682,6 +684,10 @@ class EngramProvider(MemoryProvider):
                     "error": f"entry not found in {path}: {entry_header}",
                     "available_headers": [e.header for e in entries],
                 }
+            # Reading an entry's full content = it was actually used.
+            # Bump last_used so cold-eviction (90-day no-use) reflects real
+            # recall frequency instead of manual note_use打卡.
+            storage.set_entry_last_used(self._conn, match.id)
             return {
                 "path": path,
                 "title": row.title,

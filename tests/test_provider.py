@@ -98,6 +98,50 @@ def test_use_refreshes_last_used(tmp_path):
     p.shutdown()
 
 
+def test_note_read_full_entry_touches_last_used(tmp_path):
+    """读取条目全文 = 真实使用 → 自动刷 last_used（防冷清退按真实频率计算）。
+
+    overview 模式（无全文）不刷；note_read_group 也不刷（维护读不算使用）。
+    """
+    import sqlite3
+
+    p = _new_provider(tmp_path)
+    r = _call(p, "note_write", title="A", content="body-a",
+              path="game/A", entry_header="ea")
+    _call(p, "note_write", title="B", content="body-b",
+          path="game/A", entry_header="eb")
+
+    def _last_used(header):
+        conn = sqlite3.connect(tmp_path / "notes" / "notes.sqlite3")
+        v = conn.execute(
+            "SELECT e.last_used FROM entries e JOIN groups g ON e.group_id=g.id "
+            "WHERE g.path=? AND e.header=?", (r["path"], header)
+        ).fetchone()[0]
+        conn.close()
+        return v
+
+    # 把 last_used 手动拨回过去，模拟"很久没用"
+    conn = sqlite3.connect(tmp_path / "notes" / "notes.sqlite3")
+    conn.execute("UPDATE entries SET last_used='2026-06-01T00:00:00+00:00'")
+    conn.commit(); conn.close()
+
+    lu_ea = _last_used("ea"); lu_eb = _last_used("eb")
+
+    # overview 模式：不刷
+    _call(p, "note_read", path=r["path"])
+    assert _last_used("ea") == lu_ea and _last_used("eb") == lu_eb
+
+    # 读 ea 全文：只刷 ea
+    _call(p, "note_read", path=r["path"], entry_header="ea")
+    assert _last_used("ea") > lu_ea, "读全文应刷新 last_used"
+    assert _last_used("eb") == lu_eb, "未读的条目不应被刷"
+
+    # note_read_group：维护读，不刷（否则每次维护全组变"刚用过"）
+    _call(p, "note_read_group", path=r["path"])
+    assert _last_used("eb") == lu_eb
+    p.shutdown()
+
+
 def test_comment_marks_dirty_and_survives_read(tmp_path):
     p = _new_provider(tmp_path)
     r = _call(p, "note_write", title="Y", content="body", entry_header="target")
