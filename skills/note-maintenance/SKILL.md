@@ -55,6 +55,10 @@ platforms: [linux, macos, windows]
 
 唯一删除路径：冷存储超限时按创建时间删最老批次。活跃区靠 LLM 用 `note_rewrite(entries=[])` 删除——仅当该组所有内容已消化或迁移。
 
+### 冷存储是时间队列，不参与维护
+
+搬入和删批次都由 `note_maintain` 的机械步骤按 90 天规则自动完成，维护流程不编辑冷存储。用户问“以前记过什么”时，用 `note_recall(entry_header)` 只读捞回内容；要让它回到活跃库，另调 `note_write`（允许冷/活双份共存）。
+
 ### 评论是待办 TODO，不是修改记录
 
 对话中发现记忆有问题 → `note_comment` 追加评论（同时标脏组）；维护时读评论、改条目、消化它——评论在 `note_rewrite` 时自动清空，**不要**把评论文本写进条目内容。
@@ -89,7 +93,7 @@ platforms: [linux, macos, windows]
 
 ### 第二步：探测
 
-调用 `note_maintain(force=False)`，观察返回：
+调用 `note_maintain()`，观察返回：
 - `dirty_groups`：脏组 path 列表——处理目标
 - `oversized_groups`：单组条目数 >20（`[{path, entry_count, max_entries}]`）——需要拆分
 - `overpopulated_categories`：超限节点 `[{category, child_count, subcategories, direct_groups}]`——需要合并/迁移
@@ -97,7 +101,7 @@ platforms: [linux, macos, windows]
 - `hierarchy_summary`：每层节点数——看层级形状
 - `cold_moved` / `cold_batches_pruned`：自动清退数（只读信息）
 
-**完成判定**：`dirty_groups` / `oversized_groups` / `overpopulated_categories` / `deep_categories` 都为空（`hierarchy_summary` 无 `depth4+`），且顺手的名称校准（见 3.7）已应用 → 已完成，向用户报告。
+**完成判定**：`dirty_groups` / `oversized_groups` / `overpopulated_categories` / `deep_categories` 都为空（`hierarchy_summary` 无 `depth4+`），且顺手的名称校准（见 4.7）已应用 → 已完成，向用户报告。
 
 ### 第三步：读每个脏组
 
@@ -105,7 +109,7 @@ platforms: [linux, macos, windows]
 
 ### 第四步：整理
 
-**3.1 消化评论**，按类型行动：
+**4.1 消化评论**，按类型行动：
 
 | 类型 | 行动 |
 |---|---|
@@ -115,19 +119,19 @@ platforms: [linux, macos, windows]
 | `conflicting` | 看同组其他条目，保留正确、删矛盾 |
 | `misplaced` | 迁移到目标分类（见第六步） |
 
-**3.2 合并碎片条目**：判断标准——"读者只看一条目能获得完整答案吗？"不能就合并。新 header 用概括性标题，新 content 用 `###` 分节，`last_used` 取**最新**的。
+**4.2 合并碎片条目**：判断标准——"读者只看一条目能获得完整答案吗？"不能就合并。新 header 用概括性标题，新 content 用 `###` 分节，`last_used` 取**最新**的。
 
-**3.3 去重** → 留信息最全的。**3.4 删除无价值条目**（过期/错误/无意义）。**3.5 保持不动**——大多数条目不需要改，维护是响应式的。
+**4.3 去重** → 留信息最全的。**4.4 删除无价值条目**（过期/错误/无意义）。**4.5 保持不动**——大多数条目不需要改，维护是响应式的。
 
-**3.6 组结构健康度**（响应式，只评估当前脏组，不全库扫描）：
+**4.6 组结构健康度**（响应式，只评估当前脏组，不全库扫描）：
 
-- **A. 单组 >20 条目（在 `oversized_groups`）→ 拆分**：按主题分成 2-3 组，主组 `note_rewrite` 写回，其他组 `note_write` 建成新组。**拆分后每个新组名必须能概括该组全部条目**（见 3.7）
-- **B. 节点超 50 子项（在 `overpopulated_categories`）→ 合并/迁移/归档**：`direct_groups` 按创建时间升序，最旧优先处理；两组合并 = 条目并入 A + `note_rewrite(B, entries=[])`；错分类 = 逐个 `note_write(path=目标路径)` 到目标分类 + 删原组；整组过时 = 让它自然过期到冷存储
+- **A. 单组 >20 条目（在 `oversized_groups`）→ 拆分**：按主题分成 2-3 组，主组 `note_rewrite` 写回，其他组 `note_write` 建成新组。**拆分后每个新组名必须能概括该组全部条目**（见 4.7）
+- **B. 节点超 50 子项（在 `overpopulated_categories`）→ 合并/迁移/归档**：`direct_groups` 按创建时间升序，最旧优先处理；两组合并 = 条目并入保留组 + `note_rewrite(被并组, entries=[])`；错分类 = 按第六步迁移；整组过时 = 让它自然过期到冷存储
 - **C. 脏组过小（1-2 条目）→ 顺手并入相邻主题组**；**D. 分类过稀 → 顺手上提合并**——C/D 只在处理脏组时顺手观察到才做，`note_maintain` 不会主动报告
 
-**3.7 名称校准**（响应式，处理脏组时顺手检查）——**组名和分类名是 INDEX 的检索锚，而条目标题不注入上下文：组名是条目唯一的检索入口**。让名字尽可能完善地概括组内条目的内容：
+**4.7 名称校准**（响应式，处理脏组时顺手检查）——**组名和分类名是 INDEX 的检索锚，而条目标题不注入上下文：组名是条目唯一的检索入口**。让名字尽可能完善地概括组内条目的内容：
 
-- **组名**：读脏组时留意 `title` 能否概括**每一条**条目。过泛（“笔记”、“杂项”、“参考”）、过时、只覆盖部分条目、或与实际内容不符 → `note_rename_group(path, new_title)` 改名（slug/path 自动重新派生，分类不变；新 path 冲突则先合并再改）。**若一个名字已无法同时概括所有条目，这本身就是拆分信号**（回到 3.6-A）
+- **组名**：读脏组时留意 `title` 能否概括**每一条**条目。过泛（“笔记”、“杂项”、“参考”）、过时、只覆盖部分条目、或与实际内容不符 → `note_rename_group(path, new_title)` 改名（slug/path 自动重新派生，分类不变；新 path 冲突则先合并再改）。**若一个名字已无法同时概括所有条目，这本身就是拆分信号**（回到 4.6-A）
 - **分类名**：分类下的组被搬走/合并后，分类名不再能概括其下所有组主题 → `note_rename_category(old, new)` 改名（精确匹配，只改直接组；子分类不受影响），或 `note_move` 把组挪到语义更准的分类
 - **为内容命名，不为改而改**：仅在名称明显失真、会误导检索时动手；名称已准确就不动
 
@@ -149,7 +153,7 @@ note_rewrite(path="game/br/flow", entries=[{header, content, last_used?}, ...])
 
 ### 第七步：终结
 
-处理完所有 `dirty_groups` 后，再跑一次 `note_maintain(force=False)`：确认脏组列表为空、超限告警已清。（INDEX 无需显式重写——下一轮自动实时构建。）
+处理完所有 `dirty_groups` 后，再跑一次 `note_maintain()`：确认脏组列表为空、超限告警已清。（INDEX 无需显式重写——下一轮自动实时构建。）
 
 ### 第八步：以记忆库为准纠正常驻记忆（最后做）
 
@@ -157,24 +161,25 @@ note_rewrite(path="game/br/flow", entries=[{header, content, last_used?}, ...])
 
 1. **对比**：将常驻记忆（MEMORY.md / USER.md）与整理后的 sqlite 记忆库逐条对比
 2. **冲突判定**：同一事实在两边内容不一致、或常驻记忆已过时/错误 → 以 sqlite 为准
-3. **修正**：用 **memory 工具**（`replace` / `remove` / `add`）修正 MEMORY.md / USER.md
-   - ⚠️ 不要用 `write_file` / `terminal` 直接编辑记忆 md 文件——必须走 memory 工具（有注入检查、drift guard）
-4. 修正时若发现库中反而缺内容 → 回到第一步流程补写（正常情况下不会发生，因为第一步已保证库 ⊇ 记忆）
+3. **修正**：用 **memory 工具**修正——`target="memory"` 改 MEMORY.md，`target="user"` 改 USER.md
+   - `add` 追加新条目；`replace` / `remove` **必须给 `old_text`**（条目里一小段唯一子串，用来定位要改的那条），缺失会直接报错
+   - ⚠️ 不要用 `write_file` / `patch` / `terminal` 直接编辑记忆 md——必须走 memory 工具（有注入检查、drift guard）
+4. 修正时若发现库中反而缺内容 → 回到第一步补写；注意补写会**标脏**该组，得重走第三步～第七步才能收尾（正常情况下不会发生，因为第一步已保证库 ⊇ 记忆）
 
 ### 第九步：报告
 
-告诉用户：处理了多少脏组、分类型统计（修正 X 条 / 合并 Y 组 / 迁移 Z 条 / 删除 W 条）、清退冷存储多少条、常驻记忆补写/修正了多少条。
+告诉用户：处理了多少脏组、分类型统计（修正 X 条 / 合并 Y 组 / 迁移 Z 条 / 删除 W 条）、层级变更（组改名 / 分类改名 / 移动 / 拆分各几处）、清退冷存储多少条、常驻记忆补写/修正了多少条。
 
 ## 常见陷阱
 
-- **❌ 用 `write_file` / `terminal` / SQL 直接操作数据库**——绕过 `dirty` 管理、FTS 同步、事务原子性。只能用工具 API
+- **❌ 用 `write_file` / `patch` / `terminal` / SQL 直接操作数据库**——绕过 `dirty` 管理、FTS 同步、事务原子性。只能用工具 API
 - **❌ 只处理"有评论"的条目**——脏标记可能来自新增条目（无评论但有重复），逐条目扫
 - **❌ 传 diff / 追加式 entries 到 `note_rewrite`**——全量重写：传 3 条就只有 3 条
 - **❌ 合并时用旧的 `last_used`**——取三者中最新，否则合并后立刻被冷存储清退
 - **❌ `misplaced` 只加不删**——目标分类创建 + 源组排除，两步
 - **❌ 主动大规模整理没脏标记的组 / 为合并而合并**——响应式：没信号不动；每个动作要有明确收益
 - **❌ 编辑冷存储**——`cold_batches` + `cold_entries` 不参与维护；找回用 `note_recall(entry_header)`（只读）
-- **❌ 用 `write_file` / `terminal` 直接编辑常驻记忆 md（MEMORY.md / USER.md）**——必须用 memory 工具（replace/remove/add），否则绕过注入检查与 drift guard
+- **❌ 用 `write_file` / `patch` / `terminal` 直接编辑常驻记忆 md（MEMORY.md / USER.md）**——必须用 memory 工具（replace/remove/add），否则绕过注入检查与 drift guard
 - **❌ 在维护中途纠正常驻记忆**——库还没整理完，内容不一定是权威；同步在最开始、纠正在最末尾
 - **❌ 忽视超限告警**——`oversized_groups` / `overpopulated_categories` 非空时只处理评论就了事，超限组下次维护还会出现
 - **❌ 放任名称失真**——组/分类名是 INDEX 的检索锚：名字过泛（“笔记”、“杂项”）或与实际内容不符，会让后续检索路由失准。处理脏组时发现名称失真，用 `note_rename_group` / `note_rename_category` 修正（新 path 冲突先合并）
