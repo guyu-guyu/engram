@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **状态：已实施完毕**（8 个 Task 均已落地，只是复选框没回勾——以代码为准）。落地位置：`export.py` 多段 category + `_render_tree` 树形 INDEX、`storage.move_group` / `rename_group`、`provider.py` 的 `note_move` / `note_rename_category` / `note_rename_group` + `deep_categories` / `hierarchy_summary` / `overpopulated_categories`、`dashboard/dist/index.js` 的递归缩进渲染、`SKILL.md` 的层级规范章节。验证：`python3 -m pytest tests/` 66 项全绿。
+>
+> **与计划的偏差**：① 活跃组的 `path` 实现为**不带 `.md` 后缀**（计划正文和示例里写的 `game/br/br-flow.md` 是旧表述，后缀只在导出边界拼上）；② 除 `note_move` / `note_rename_category` 外还多了 `note_rename_group`（按 title 重派生 slug/path，见 commit `6f22ee9`）；③ 模块路径从 `sqlite_note_store/*.py` 变为仓库根（插件即仓库根，见 commit `bd744c7` 重命名）。
+
 **Goal:** 支持多段分类路径(`game/br/br-flow.md`),形成 领域/主题/子主题 树;新增 `note_move` / `note_rename_category` 工具让 LLM 维护层级;`note_maintain` 报告层级健康度。
 
 **Architecture:** category 从单段字符串扩展为多段路径字符串(数据模型不变,`path` UNIQUE 天然支持);INDEX 从扁平分组改为缩进树;层级深度不做硬限制,由 `note_maintain` 检测报告(默认阈值 3 层)+ 维护 skill 规范,LLM 用新工具自行整理。

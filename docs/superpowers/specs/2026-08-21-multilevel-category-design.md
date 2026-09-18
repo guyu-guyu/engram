@@ -1,7 +1,13 @@
 # 多层 Category 层级设计
 
 日期: 2026-08-21
-状态: 待审阅
+状态: **已实施**（计划见 `plans/2026-08-21-multilevel-category.md`，其复选框未回勾——以代码为准）
+
+> **实现后的差异备注**（设计记录保留原样，差异以此为准）：
+> 1. 文中 `path = f"{category}/{slug}.md"` 的写法是设计时的假设；实现中 DB 的 `path` **不带 `.md` 后缀**，后缀只在导出边界拼上。因此文中 INDEX/示例里的 `game/br/br-flow.md` 实际渲染为 `game/br/br-flow`（仅冷存储链接仍带 `.md`，因其文件名本身无后缀）。
+> 2. “LLM 工具面只新增 `note_move` + `note_rename_category`”被后续扩展：实际还新增了 `note_rename_group`（按 title 重派生 slug/path，分类不变），工具面共 12 个。
+> 3. 影响面里的 `sqlite_note_store/*.py` 路径已不存在：插件重命名为 engram 后**仓库根即插件根**，模块平铺在根目录。
+> 4. 后来另有一处独立修正：超大组判定改为**按条目数（> 20）**，弃用“渲染超 50KB”的字节标准（commit `449ed43`）。
 
 ## 背景与目标
 
