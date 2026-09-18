@@ -17,7 +17,9 @@ The DB's atomic container is a `group` — a thematic set of similar
 entries (exported as one .md file). Cold storage holds time-queue
 `batches`, not topical groups. See schema.py for the full mapping.
 
-Reference (read-only): markdown-note-store-plugin/…/__init__.py.
+The markdown shape this store projects to is inherited from
+markdown-note-store, engram's superseded pure-Markdown predecessor —
+see markdown_io.py for the on-disk shape itself.
 """
 
 from __future__ import annotations

@@ -4,8 +4,10 @@ Rationale
 ---------
 SQLite is the store of record; markdown is the interchange format.
 This module owns the exact byte-level shape the markdown-note-store
-plugin writes, so a SQLite-backed store can be re-exported to the same
-directory tree and read back identically. Kept out of storage.py so
+plugin writes — markdown-note-store is engram's superseded pure-Markdown
+predecessor, and keeping its on-disk shape is what makes two-way
+migration possible. So a SQLite-backed store can be re-exported to the
+same directory tree and read back identically. Kept out of storage.py so
 tests can round-trip strings without touching the DB.
 
 On-disk shape (mirrors markdown-note-store v1.1.0):
@@ -28,10 +30,9 @@ Cold-storage batch files are plain markdown — the YAML block is
 intentionally omitted (filename encodes the date; dirty/title are
 meaningless in a time-queue archive).
 
-Reference used (read-only):
-  /projects/markdown-note-store-plugin/markdown_note_store/__init__.py
-  helpers: _parse_yaml_front_matter, _build_yaml_front_matter,
-           _parse_entries, _build_body_from_entries.
+Helper correspondence — the four public functions below mirror the
+predecessor's `_parse_yaml_front_matter` / `_build_yaml_front_matter` /
+`_parse_entries` / `_build_body_from_entries`, leading underscore dropped.
 """
 
 from __future__ import annotations

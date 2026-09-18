@@ -1,26 +1,35 @@
-"""EngramProvider — the MemoryProvider facade (formerly sqlite-note-store).
+"""EngramProvider — the MemoryProvider facade for the engram note store.
 
-This module wires storage / markdown_io / export into the exact set of
-tools the reference `markdown-note-store` plugin exposes, so the LLM's
-mental model doesn't change. Everything below the tool boundary is
-SQLite; everything above it is byte-compatible with the old plugin.
+This module wires storage / markdown_io / export into the LLM tool
+surface. Everything below the tool boundary is SQLite; the Markdown
+directory tree is a one-way projection (export) plus an import bridge.
 
-Tool surface (identical names, identical response shapes):
-    note_search   — FTS5 across active entries only (never cold).
-    note_write    — append or replace an entry; auto-slug title → group.
-    note_read     — dump a single active group's entries, slim or single.
-    note_use      — refresh an entry's `last_used`.
+Tool surface (12):
+    note_search   — two-path search over active entries only (FTS5 token
+                    prefix + LIKE substring fallback; never cold).
+    note_write    — append one entry; prefer an existing group via `path`,
+                    else create/derive one; always marks the group dirty.
+    note_read     — slim group overview, or one entry's full content when
+                    `entry_header` is given (auto-refreshes last_used).
+    note_read_group — every entry + comments of one group (maintenance only).
+    note_use      — explicitly refresh an entry's `last_used`.
     note_recall   — read a cold-storage entry, no mutation to cold side.
     note_comment  — attach an ephemeral TODO to an entry, marks dirty.
-    note_maintain — mechanical work (cold-evict, index) + return dirty list.
-    note_rewrite  — sole dirty-clearing entry point.
-    note_move     — mechanically relocate a group to another category (hierarchy maintenance).
-    note_rename_category — rename a category path (exact match), updating its groups' prefixes.
-    note_rename_group    — rename a group's title (re-derives slug/path; category unchanged).
+    note_maintain — mechanical work (cold-evict, prune, over-limit and
+                    too-deep detection) + return the dirty list; never
+                    clears dirty.
+    note_rewrite  — sole dirty-clearing entry point (entries=[] deletes).
+    note_move     — mechanically relocate a group to another category
+                    (hierarchy maintenance; does not mark dirty).
+    note_rename_category — rename a category path (exact match), updating
+                    its groups' prefixes; subcategories untouched.
+    note_rename_group    — rename a group's title (re-derives slug/path;
+                    category unchanged; does not mark dirty).
 
-Design decisions honored (see hermes-memory-provider skill):
+Design decisions honored (see DESIGN_PHILOSOPHY.md):
     - Python detects, LLM decides, note_rewrite persists.
     - note_maintain NEVER clears the dirty flag on its own.
+    - Python never physically deletes active groups or entries.
     - Cold storage is an append-to-latest queue keyed on the newest cold
       batch's `created` timestamp — not a per-day partition.
     - Entries are the atomic unit of memory; groups are grouping
@@ -54,8 +63,7 @@ except ImportError:  # standalone / CLI top-level run
 logger = logging.getLogger(__name__)
 
 
-# Tunable defaults — mirror the reference plugin's numbers so the two
-# implementations behave interchangeably when swapping.
+# Tunable defaults — cold-eviction and over-limit detection thresholds.
 DEFAULT_COLD_EVICT_DAYS = 90
 DEFAULT_MAX_COLD_BATCHES = 50
 # Group-size cap: counted in ENTRIES, not bytes. Entry headers are NOT in the
@@ -242,7 +250,9 @@ class EngramProvider(MemoryProvider):
     # -- tool schemas -------------------------------------------------------
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        """Exact same names/params as the reference markdown-note-store."""
+        """The 12 tool schemas handed to the LLM. Names and parameter
+        shapes are a stable contract — note_read's dual mode and
+        note_write's entry_header are part of it."""
         return [
             {
                 "name": "note_search",

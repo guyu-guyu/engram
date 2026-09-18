@@ -35,7 +35,7 @@ ln -sfn /path/to/engram-plugin "${HERMES_HOME:-$HOME/.hermes}/plugins/engram"
 
 > **激活机制**：memory provider 的**激活**只由 `memory.provider` 配置键决定，与 `plugins.enabled` 无关。但**如果要使用 Web 看板（dashboard）**，插件名（manifest 的 `name`）**必须出现在 `plugins.enabled` 里**——dashboard 前端用它对用户插件做门控，不在列表里的插件 tab 会被静默过滤（见下方故障排查）。
 >
-> **验证**：在 hermes-agent 仓库根目录运行 `python -c "from plugins.memory import discover_memory_providers; print([p[0] for p in discover_memory_providers()])"`，应包含 `engram`。若加载失败，启动日志会包含 `Failed to load memory provider` 或 `Memory provider ... initialize failed`（加载失败只是降级跳过，不会阻塞 Hermes 启动，所以**没报错 ≠ 已加载**，务必查配置与日志）。
+> **验证**：在 hermes-agent 仓库根目录运行 `python3 -c "from plugins.memory import discover_memory_providers; print([p[0] for p in discover_memory_providers()])"`，应包含 `engram`。若加载失败，启动日志会包含 `Failed to load memory provider` 或 `Memory provider ... initialize failed`（加载失败只是降级跳过，不会阻塞 Hermes 启动，所以**没报错 ≠ 已加载**，务必查配置与日志）。
 
 ### 方式二：git clone 安装（分发/更新）
 
@@ -61,7 +61,7 @@ git pull   # 以后更新
 $HERMES_HOME/plugins/engram → 仓库根
 ├── plugin.yaml      # 在根
 ├── __init__.py      # register(ctx) 在根
-├── provider.py      # SQLiteNoteStoreProvider + register
+├── provider.py      # EngramProvider + register
 ├── schema.py / storage.py / export.py / markdown_io.py
 ├── skills/
 └── dashboard/       # 看板（manifest.json + dist/ + plugin_api.py）
@@ -78,7 +78,7 @@ $HERMES_HOME/plugins/engram → 仓库根
 
 ```bash
 # 在 hermes-agent 仓库根目录：确认发现
-python -c "from plugins.memory import discover_memory_providers; print([p[0] for p in discover_memory_providers()])"
+python3 -c "from plugins.memory import discover_memory_providers; print([p[0] for p in discover_memory_providers()])"
 
 # 启动日志里搜这些关键词定位失败原因
 #   Failed to load memory provider ...   → 导入/注册异常（日志会带具体错误）
@@ -173,15 +173,33 @@ export.import_from_directory(conn, Path("/path/to/some-markdown-notes"), replace
 
 ### 每轮注入的内容
 
+`system_prompt_block()` 的实际输出（长段落按句折行仅为便于阅读，实际注入为连续文本；`{index_text}` 由 `_build_index_markdown()` 实时生成）：
+
 ```markdown
-# Note Repository (engram)
-Persistent memory keyed on `title` (auto-slugged to a file).
-Reading path: scan the index below first to spot the right group,
-then `note_read(path)` for a slim headers overview, then
-`note_read(path, entry_header)` to fetch just the entry you want —
-cheap on context. Only during maintenance (processing a dirty group)
-use `note_read_group(path)` to see every entry's body.
-Fall back to `note_search(query)` when the index doesn't match.
+# Memory Repository (engram)
+Persistent memory keyed on `title` (auto-slugged into a group). Reading path: scan the index
+below first to spot the right group, then `note_read(path)` for a slim headers overview, then
+`note_read(path, entry_header)` to fetch just the entry you want — cheap on context. Only
+during maintenance (processing a dirty group) use `note_read_group(path)` to see every entry's
+body. Fall back to `note_search(query)` when the index doesn't match — search matches token
+prefixes plus arbitrary substrings (Chinese-safe). Paths are `category/slug` — no `.md` suffix.
+SYNC RULE: writing to session-level memory (Hermes `memory` tool) REQUIRES a matching note_write
+to this repository in the same turn — the two stores never conflict; memory is a subset of this
+repo. The reverse does NOT hold: note_write alone is fine without a memory write.
+RESIDENT-MEMORY APPEND RULE: when writing to session-level memory, the new entry is appended at
+the END of the resident memory file (never inserted in the middle or replacing the structure).
+If the resident memory is over its character budget after the append, consolidate by removing
+the OLDEST entries first (lowest value / most stale) until it fits — newest knowledge wins,
+oldest is evicted. Writing path: `note_write(title, content, tags)` — prefer writing into an
+EXISTING group: pick the group in the index whose topic is closest to the content (loose
+relevance suffices, no exact match needed) and pass its `path` (e.g.
+`note_write(path='game/br/flow', ...)`) to append there. Avoid creating new groups; create one
+only when no existing group fits or writing into one would blur its topic — pass the new `path`
+(`category/slug`, its last segment names the group) with a meaningful title. When `path` is
+omitted, the group is derived from the title under 'uncategorized' (same title -> same group).
+Cold storage is a time queue — do NOT browse it proactively; use `note_recall(entry_header)`
+only if the user asks to look 'from history'. Use `note_comment` to flag issues on an entry
+(dirty); do NOT edit note files with `write_file`/`terminal`.
 
 ## Live Index
 
@@ -192,18 +210,20 @@ Fall back to `note_search(query)` when the index doesn't match.
 
 ## coding
 - [Python 调试技巧](coding/python-debug) — 5 entries
-- [Rust 常用命令](coding/rust-commands.md) — 3 entries *(dirty)*
+- [Rust 常用命令](coding/rust-commands) — 3 entries *(dirty)*
 
 ## game
 - br
   - [卡牌BR战斗流程](game/br/br-flow) — 8 entries
-  - [局外系统](game/br/meta.md) — 12 entries *(dirty)*
+  - [局外系统](game/br/meta) — 12 entries *(dirty)*
 - fps
-  - [武器平衡](game/fps/weapon.md) — 3 entries
+  - [武器平衡](game/fps/weapon) — 3 entries
 
 ## cold-storage
 - [2026-07-15](cold-storage/2026-07-15.md) — 23 entries
 ```
+
+两点注意：活跃组的链接是**不带后缀**的 `path`（`game/br/meta`），只有冷存储链接带 `.md`（批次文件名本身不带后缀，磁盘产物才是 `cold-storage/2026-07-15.md`）。子分类缩进 2 空格一层，深度不限。
 
 顶栏统计给出 `Groups / Entries / Cold / Dirty` 四个数字，加上生成时间戳。之后按分类分组列出所有活跃组，每个组标注条目数；dirty 组带 `*(dirty)*` 标记。冷存储只列文件名 + 条目数。
 
@@ -214,7 +234,8 @@ provider.py::system_prompt_block()   ← 每轮由 Hermes 调用
     │
     └── export.py::_build_index_markdown(conn)
             │
-            ├── 4 条简单 SQL 查询（groups / entries count / cold count / cold batches）
+            ├── 5 条简单 SQL 查询（组列表 / 活跃条目数 / 冷条目数 / 组内条目计数 / 冷批次列表）
+            │    （冷存储非空时，每个批次再加一次 COUNT）
             └── 纯字符串拼接
 ```
 
@@ -231,8 +252,8 @@ provider.py::system_prompt_block()   ← 每轮由 Hermes 调用
 导出即可（INDEX.md 默认包含在导出目录里）：
 
 ```bash
-python __main__.py export /tmp/view          # 生成 /tmp/view/INDEX.md
-python __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
+python3 __main__.py export /tmp/view          # 生成 /tmp/view/INDEX.md
+python3 __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
 ```
 
 ## 工具形态
@@ -243,19 +264,22 @@ python __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
 
 在**活跃条目**上跑 FTS5 搜索。**永远不搜冷存储**。返回 `[{path, title, category, snippet}]`。
 
-### `note_write(title, content, tags="", path=None)`
+### `note_write(title, content, tags="", path=None, entry_header=None)`
 
 追加一条新条目。会：
 - **优先写入已有组**：传入 `path`（如 `game/br/flow`，不带 `.md`，见 INDEX）时，条目直接追加进该组，保留原组标题并合并 tags
 - **必要时才新建**：`path` 不存在时在该位置新建组（path 最后一段即组名，前段即分类）；不传 `path` 时用 `slugify(title)` 在 `uncategorized` 下派生（同 title 落同组）
+- **`entry_header` 给这一条命名**：省略时退化为时间戳标签（`YYYY-MM-DD HH:MM`）。它是 `note_read` / `note_use` / `note_comment` / `note_recall` 定位条目的 key，应给具体、可概括内容的短标题（不要用 `note` / `memo` 这类通名）
+- 新条目的 `last_used` 自动置为当前时间
 - 无论如何**都会把组置 dirty**，等 LLM 在下次维护时判断是否需要合并
+- 返回 `{status, path, group_id, entry_id, created_new_group}`
 
 ### `note_read(path, entry_header=None)`
 
 **两种模式，默认省 context：**
 
 - `note_read(path)` — 返回组的**精简概要**：`{title, category, tags, dirty, entry_count, headers}`，**不包含 content**。
-- `note_read(path, entry_header="...")` — 返回**单个条目**的完整内容 `{header, content, last_used, comments}`。日常对话引用记忆的正确路径。
+- `note_read(path, entry_header="...")` — 返回**单个条目**的完整内容 `{header, content, last_used, comments}`。日常对话引用记忆的正确路径。**读全文会自动刷新该条目的 `last_used`**（等价一次隐式 `note_use`），无需再手动调一次。
 
 ### `note_read_group(path)`
 
@@ -263,7 +287,11 @@ python __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
 
 ### `note_use(path, entry_header)`
 
-刷新条目的 `last_used`，让它不至于因为长时间没被引用而被冷迁移。LLM 在**真正引用一条记忆时**主动调用。
+**显式**刷新条目的 `last_used`，让它不至于因为长时间没被引用而被冷迁移（默认 90 天）。
+
+因为 `note_read` 读全文时已经自动刷新，`note_use` 补的是两种读不到全文的场景：
+- 只从 INDEX / 组概要里用到了记忆内容，没有读全文
+- 维护流程中的保活——把常驻记忆（`MEMORY.md` / `USER.md`）对应的库内条目逐一 `note_use`，防止高频条目因为 `last_used` 陈旧被误清退
 
 ### `note_recall(entry_header)`
 
@@ -279,8 +307,9 @@ python __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
 
 - 冷迁移超过 `cold_evict_days`（默认 90 天）没用过的条目
 - 冷批次超上限（默认 50 个）删最老
-- 检测超大组 → force dirty
-- 检测超限分类 → force dirty
+- 检测超大组（条目数 > `max_group_entries`，默认 20）→ 该组 force dirty
+- 检测超限分类（子项 > `max_groups_per_category`，默认 50）→ 只把**超出上限的最旧组** force dirty（`direct_groups` 按创建时间升序取头部）
+- 检测过深分类（> `max_category_depth`，默认 3 层）→ **只报告**，不标脏、不强制（深度不硬限制）
 - 返回 `{dirty_groups, cold_moved, cold_batches_pruned, oversized_groups, overpopulated_categories, deep_categories, hierarchy_summary}`
 
 **`note_maintain` 从不清 dirty**，这是最关键的一条契约。
@@ -301,33 +330,56 @@ python __main__.py export /tmp/view --no-index  # 跳过 INDEX.md
 
 重命名一个组的标题（显示名），slug 与 path 按新标题重新派生（**分类不变**）。用于修正写错的组名——这是 LLM 唯一能改组名的工具。目标 path 已存在则报错；**不标 dirty**（内容没变，只是名字变）。
 
-### 组/分类编辑（Dashboard API）
+### 看板 HTTP API（Dashboard API）
 
-除了上述 LLM 工具，provider 还通过 HTTP API 暴露了组和分类的管理能力，供 Web 看板使用（路由名沿用历史术语 file，对应存储概念 group）：
+除了上述 LLM 工具，provider 还把完整的读写能力暴露成 HTTP API，供 Web 看板使用。所有路由挂载在 `/api/plugins/engram/` 前缀下（前缀 = dashboard manifest 的 `name`），并接受 `?profile=<name>` 切到指定 profile 的库（省略时按 `NOTE_ROOT` → `$HERMES_HOME/notes` → `~/.hermes/notes` 顺序解析）。**路由名沿用历史术语 file，对应存储概念 group。**
 
-| 操作 | 端点 | 保护 |
+**读：**
+
+| 操作 | 端点 |
+|---|---|
+| INDEX（统计 + 分类树） | `GET /index` |
+| 单个组（含全部条目） | `GET /files/{id}` |
+| 单个条目 | `GET /entries/{id}` |
+| 分类列表 | `GET /categories` |
+| 全文搜索（双路径，`q` 必填，`limit` 默认 50 / 上限 200） | `GET /search?q=&limit=` |
+| 冷存储（批次按 `created` 倒序 + 每批条目） | `GET /cold` |
+| 仪表盘统计 | `GET /stats` |
+
+**写：**
+
+| 操作 | 端点 | 保护 / 副作用 |
 |---|---|---|
-| 重命名分类 | `PUT /api/categories`（body: `{old_name, new_name}`） | — |
-| 删除分类 | `DELETE /api/categories/{name}` | 有组→禁止 (409) |
-| 重命名组 | `PUT /api/files/{id}`（body: `{title}`） | — |
-| 移动组到其他分类 | `PUT /api/files/{id}`（body: `{category}`） | — |
-| 删除组 | `DELETE /api/files/{id}` | 有条目→禁止 (409) |
-| 编辑条目 | `PUT /api/entries/{id}` | — |
-| 删除条目 | `DELETE /api/entries/{id}` | — |
+| 新建条目 | `POST /entries`（body: `{file_id, header, content}`） | 追加到组末尾（`order_index = max + 1`），同步 FTS；**不置 dirty** |
+| 新建组 | `POST /files`（body: `{category, title}`） | path 冲突→409；**写 `dirty = 1`**（唯一置脏的看板写操作） |
+| 重命名组 | `PUT /files/{id}`（body: `{title}`） | title/slug/path 联动重建，path 冲突→409 |
+| 移动组到其他分类 | `PUT /files/{id}`（body: `{category}`） | path 冲突→409 |
+| 删除组 | `DELETE /files/{id}` | 有条目→禁止 (409) |
+| 重命名分类 | `PUT /categories`（body: `{old_name, new_name}`） | 精确匹配，多段路径也可 |
+| 删除分类 | `DELETE /categories/{name}` | 有组→禁止 (409) |
+| 编辑条目 | `PUT /entries/{id}`（body: `{header?, content?, last_used?}`） | 同步 FTS；**不置 dirty** |
+| 删除条目 | `DELETE /entries/{id}` | 物理删除 + 剩余条目 `order_index` 重排；**不置 dirty** |
+
+> ⚠️ **看板写入不遵循工具的标脏契约**：只有 `POST /files` 写 `dirty=1`，其余看板写操作绕过 `note_write` / `note_comment` 直接改库，**不会把组置脏**。它们也不会像 LLM 工具那样受“不物理删除活跃条目”约束——删除是看板用户手动触发的。维护时不要把看板当成会产生 dirty 信号的通路。
 
 ## 内部长什么样
 
 模块分层，每层可以独立测试（仓库根即插件根）：
 
 ```
+├── __init__.py          — 包入口：re-export EngramProvider / register（包模式与顶层模式兼容）
+├── __main__.py          — CLI：import / export / status
 ├── schema.py            — DDL + 建库（groups / entries / cold_batches / cold_entries + FTS5）
 ├── markdown_io.py       — parse_file() / render_file() / entry ⇋ row
 ├── storage.py           — CRUD + FTS 搜索 + 冷迁移 SQL
 ├── export.py            — SQLite ⇋ 目录树的双向桥
-├── provider.py          — MemoryProvider 门面类 + 12 个 tool 处理器 + Dashboard API
-├── plugin.yaml          — 元数据 + hooks
+├── provider.py          — MemoryProvider 门面类 + 12 个 tool 处理器 + system_prompt_block
+├── plugin.yaml          — 插件元数据（name / version / description / pip_dependencies / requires_env）
 ├── dashboard/
-│   └── dist/index.js    — 前端 bundle（统计 + INDEX 树 + 编辑器 + 搜索 + 冷存储 + 新建条目弹窗）
+│   ├── manifest.json    — 看板声明（name / label / tab / entry / css / api）
+│   ├── plugin_api.py    — FastAPI 路由（读 + 写，profile 感知）
+│   ├── dist/index.js    — 前端 bundle（统计 + INDEX 树 + 编辑器 + 搜索 + 冷存储 + 新建条目弹窗）
+│   └── smoke_test.py    — 看板 API 端到端冒烟测试（需 Hermes 运行时）
 └── skills/
     └── note-maintenance/SKILL.md  — 维护技能（注册为 engram:engram-mem-maintenance）
 ```
@@ -340,15 +392,18 @@ tests/
 ├── test_markdown_io.py   — YAML 解析 / 条目解析 / round-trip 稳定
 ├── test_storage.py       — CRUD / FTS / 冷迁移 / 冷批次上限
 ├── test_export.py        — export/import 双向、clean、round-trip
-└── test_provider.py      — tool 端到端 + dirty 契约 + 冷屏蔽 + Dashboard API
+├── test_cli.py           — CLI 的 import / export / status 子命令
+└── test_provider.py      — tool 端到端 + dirty 契约 + 冷屏蔽
 ```
 
-54 项全绿。跑法：
+66 项全绿。跑法（**务必指定 `tests/` 目录**）：
 
 ```bash
 cd engram-plugin
-python -m pytest -v
+python3 -m pytest tests/ -v
 ```
+
+> 别直接跑不带路径的 `pytest`：`dashboard/smoke_test.py` 也会被收集，而它依赖 Hermes 运行时的 `fastapi`，在裸环境下会在收集阶段报错并**中断整个测试会话**。看板 API 的端到端覆盖在 `smoke_test.py` 里，需要在 Hermes 环境单独跑（用 FastAPI `TestClient` 对临时 DB 打全部路由）。
 
 ## 设计理念 ↔ 实现 对应
 
@@ -365,6 +420,7 @@ python -m pytest -v
 | 保留隐式关联性 | 维护时用 `note_read_group(path)` 一次拉整组；INDEX 用 group 作聚类锚 |
 | 评论是 ephemeral TODO | `note_comment` 追加 JSON + 标脏；`note_rewrite` 自动清空 |
 | 无 pip 依赖 | `plugin.yaml: pip_dependencies: []` |
+| 组容量按条目数，不按字节 | `_detect_oversized_groups()` 判 `entry_count > max_group_entries`（默认 20） |
 | 层级由 LLM 维护，代码只检测报告 | `note_maintain` 返回 `deep_categories` + `hierarchy_summary`；深度不强制 |
 
 ## 已知边界
@@ -372,4 +428,5 @@ python -m pytest -v
 - **SQLite 3.42 编译时无 `contentless_delete`** → 用普通 FTS5（带副本），索引存储成本换 DELETE 兼容性
 - **FTS5 查询中的标点** → provider 层用双引号包裹整个查询，`crash-fix` 这类字符不会被解析成 NOT 操作符
 - **FTS5 中文分词** → unicode61 把连续 CJK（含粘连数字）当作单个 token，纯 FTS 无法匹配中段子串。`note_search` 用「FTS5 前缀匹配 + LIKE 兜底」双路径解决：token 前缀命中走 FTS（rank 排序优先），任意子串（含中文中段）由 LIKE 兜底补足——无需重建索引，量级小成本可忽略
-- **单进程假设** → SQLite WAL 模式下多读者一写者是安全的，dashboard 只读连接不与 provider 写入抢锁；但**不要跨 Hermes 实例并发写同一 DB**
+- **单进程假设** → SQLite WAL 模式下多读者一写者是安全的；看板是**读写**通路（`plugin_api.py` 开自己的连接改库、自行同步 FTS），与 provider 写入同库共存，靠 WAL 串行化。但**不要跨 Hermes 实例并发写同一 DB**
+- **看板写入不产生 dirty 信号** → 除 `POST /files`（新建组写 `dirty=1`）外，看板的编辑/删除都不置脏，也不受“不物理删除活跃条目”约束——维护流程只把 `note_*` 工具视为脏来源

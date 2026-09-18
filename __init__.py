@@ -2,7 +2,7 @@
 
 The plugin root doubles as a Python package when loaded by Hermes
 (`_hermes_user_memory.engram`). The MemoryProvider surface is
-`provider.SQLiteNoteStoreProvider`; `register(ctx)` wires it into Hermes.
+`provider.EngramProvider`; `register(ctx)` wires it into Hermes.
 """
 
 # Re-export so Hermes plugin discovery finds register() and the
