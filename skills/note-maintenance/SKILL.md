@@ -80,6 +80,7 @@ platforms: [linux, macos, windows]
 2. **逐条核对**：对每条常驻记忆内容，用 `note_search` / 对照 INDEX 判断 sqlite 记忆库中是否已有等价条目
 3. **缺失则写入**：`note_write` 按常规流程添加——选主题最近的组（或新建组）、给有意义的 `entry_header`、组自动标脏
 4. **完成判定**：记忆库**完全包含**常驻记忆的所有内容（sqlite ⊇ memory）
+5. **刷 last_used（本步末尾必做）**：逐条确定对应关系后，对**每一条出现在常驻记忆中的记忆库条目**调用 `note_use(path, entry_header)`——常驻记忆的每一条都在被每个会话高频使用，但"使用常驻记忆里的内容"不会经过 note_read，库内条目的 last_used 不会自动刷新；不补刷的话，高频条目反而会因为 last_used 陈旧被 90 天冷清退误伤。注意用 note_use 而不是 note_read 全文（前者一次轻量更新，后者会多耗 token 读回全文）
 
 注意：
 - 只写「常驻记忆有、库中没有」的内容；库中已有的不重复写
