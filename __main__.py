@@ -1,13 +1,13 @@
-"""CLI: `python __main__.py import|export|status`.
+"""CLI: `python3 __main__.py import|export|status`.
 
 Kept minimal — the actual work lives in export.py. This file is just a
 thin argparse layer so users can run the migration without writing
 Python.
 
 Examples:
-    python __main__.py import /data/projects/.hermes/notes
-    python __main__.py export /tmp/notes-backup --clean
-    python __main__.py status
+    python3 __main__.py import /path/to/markdown-notes
+    python3 __main__.py export /tmp/notes-backup --clean
+    python3 __main__.py status
 """
 
 from __future__ import annotations
@@ -16,10 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# CLI 是顶层入口（python __main__.py）——绝对导入；Hermes 插件模式不加载本模块。
-import sys
-from pathlib import Path
-
+# CLI 是顶层入口（python3 __main__.py）——绝对导入；Hermes 插件模式不加载本模块。
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 import export as export_mod  # noqa: E402
@@ -79,7 +76,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="sqlite-notes")
+    parser = argparse.ArgumentParser(prog="engram")
     parser.add_argument(
         "--db-root",
         help="SQLite note store root (defaults to ~/.hermes/notes)",
@@ -87,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_imp = sub.add_parser(
-        "import", help="Import a markdown-note-store directory tree"
+        "import", help="Import a Markdown note-store directory tree (engram's export shape)"
     )
     p_imp.add_argument("src", help="Directory to import from")
     p_imp.add_argument(
@@ -98,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.set_defaults(func=_cmd_import)
 
     p_exp = sub.add_parser(
-        "export", help="Export the SQLite DB into a markdown-note-store directory"
+        "export", help="Export the SQLite DB into a Markdown note-store directory"
     )
     p_exp.add_argument("dst", help="Directory to export to")
     p_exp.add_argument(

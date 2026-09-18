@@ -1,5 +1,9 @@
 """Dashboard plugin_api 端到端冒烟测试。
-用 FastAPI TestClient 对临时 DB 跑全部 8+1 路由。
+用 FastAPI TestClient 对临时 DB 跑 10 个场景（覆盖 index / stats / files / entries / search / cold 与 404 路径）。
+
+路由前缀必须与 dashboard/manifest.json 的 name 一致（当前：engram）——
+前缀不对时所有请求 404，前端 dist/index.js 的 API 常量同理。
+需在 Hermes 运行时环境跑（依赖 fastapi）。
 """
 import os
 import sys
@@ -59,13 +63,13 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 app = FastAPI()
-app.include_router(plugin_api.router, prefix="/api/plugins/notes")
+app.include_router(plugin_api.router, prefix="/api/plugins/engram")
 client = TestClient(app)
 
 errors = []
 
 # 1. GET /index
-r = client.get("/api/plugins/notes/index")
+r = client.get("/api/plugins/engram/index")
 assert r.status_code == 200, f"GET /index failed: {r.text}"
 data = r.json()
 assert len(data) == 1 and data[0]["category"] == "uncategorized"
@@ -73,7 +77,7 @@ assert data[0]["files"][0]["entry_count"] == 2
 print(f"  ✓ GET /index — {len(data)} categories, {data[0]['files'][0]['entry_count']} entries")
 
 # 2. GET /stats
-r = client.get("/api/plugins/notes/stats")
+r = client.get("/api/plugins/engram/stats")
 assert r.status_code == 200, f"GET /stats failed: {r.text}"
 stats = r.json()
 assert stats["total_entries"] == 2
@@ -81,27 +85,27 @@ assert stats["total_groups"] == 1
 print(f"  ✓ GET /stats — {stats['total_entries']} entries, {stats['total_groups']} groups")
 
 # 3. GET /files/{id}
-r = client.get(f"/api/plugins/notes/files/{group_id}")
+r = client.get(f"/api/plugins/engram/files/{group_id}")
 assert r.status_code == 200, f"GET /files failed: {r.text}"
 assert len(r.json()["entries"]) == 2
 print(f"  ✓ GET /files/{group_id} — {len(r.json()['entries'])} entries")
 
 # 4. GET /entries/{id}
-r = client.get(f"/api/plugins/notes/entries/{e1}")
+r = client.get(f"/api/plugins/engram/entries/{e1}")
 assert r.status_code == 200, f"GET /entries failed: {r.text}"
 assert r.json()["header"] == "第一个条目"
 print(f"  ✓ GET /entries/{e1} — header={r.json()['header']}")
 
 # 5. PUT /entries/{id} — 编辑
-r = client.put(f"/api/plugins/notes/entries/{e1}", json={"content": "更新后的内容"})
+r = client.put(f"/api/plugins/engram/entries/{e1}", json={"content": "更新后的内容"})
 assert r.status_code == 200, f"PUT /entries failed: {r.text}"
 # 验证更新生效
-r2 = client.get(f"/api/plugins/notes/entries/{e1}")
+r2 = client.get(f"/api/plugins/engram/entries/{e1}")
 assert r2.json()["content"] == "更新后的内容"
 print(f"  ✓ PUT /entries/{e1} — content updated")
 
 # 6. POST /entries — 新建
-r = client.post("/api/plugins/notes/entries", json={
+r = client.post("/api/plugins/engram/entries", json={
     "file_id": group_id, "header": "新条目", "content": "新建内容"
 })
 assert r.status_code == 200, f"POST /entries failed: {r.text}"
@@ -109,27 +113,27 @@ new_id = r.json()["id"]
 print(f"  ✓ POST /entries — created id={new_id}")
 
 # 7. GET /search — FTS5
-r = client.get("/api/plugins/notes/search?q=搜索关键词")
+r = client.get("/api/plugins/engram/search?q=搜索关键词")
 assert r.status_code == 200, f"GET /search failed: {r.text}"
 assert r.json()["count"] == 1
 print(f"  ✓ GET /search — {r.json()['count']} results for '搜索关键词'")
 
 # 8. GET /cold
-r = client.get("/api/plugins/notes/cold")
+r = client.get("/api/plugins/engram/cold")
 assert r.status_code == 200, f"GET /cold failed: {r.text}"
 assert r.json()["total"] == 0
 print(f"  ✓ GET /cold — {r.json()['total']} cold batches")
 
 # 9. DELETE /entries/{id}
-r = client.delete(f"/api/plugins/notes/entries/{new_id}")
+r = client.delete(f"/api/plugins/engram/entries/{new_id}")
 assert r.status_code == 200, f"DELETE /entries failed: {r.text}"
 # 验证删除生效
-r2 = client.get(f"/api/plugins/notes/entries/{new_id}")
+r2 = client.get(f"/api/plugins/engram/entries/{new_id}")
 assert r2.status_code == 404
 print(f"  ✓ DELETE /entries/{new_id} — deleted, 404 on re-fetch")
 
 # 10. 404测试
-r = client.get("/api/plugins/notes/entries/99999")
+r = client.get("/api/plugins/engram/entries/99999")
 assert r.status_code == 404
 print(f"  ✓ 404 test — nonexistent entry returns 404")
 
